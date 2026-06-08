@@ -85,5 +85,8 @@ RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET")
 
 CORS_ALLOWED_ORIGINS = [
     "https://culturejeevan.co.in",
+    "https://www.culturejeevan.co.in",
     "http://localhost:3000",
+    "https://culture-jeevan.vercel.app/",
+    "https://www.culture-jeevan.vercel.app",
 ]
