@@ -22,7 +22,8 @@ INSTALLED_APPS = [
     'rest_framework',
     'corsheaders',
     'apps.bookings',
-    'apps.notifications',  # ← add this
+    'apps.notifications',
+    'apps.creators',  # ← add this
 ]
 
 MIDDLEWARE = [
