@@ -20,6 +20,62 @@ def _creator_user_id(creator_id: str) -> str | None:
         return None
 
 
+class CreateBookingRequest(APIView):
+    def post(self, request):
+        creator_id      = request.data.get("creator_id")
+        requester_id    = request.data.get("requester_id")
+        requester_phone = request.data.get("requester_phone")
+        occasion_type   = request.data.get("occasion_type")
+        event_date      = request.data.get("event_date")
+        location        = request.data.get("location")
+        budget          = request.data.get("budget")
+        note            = request.data.get("note")
+
+        if not all([creator_id, requester_phone, event_date, location]):
+            return Response({"error": "Missing required fields"}, status=400)
+
+        # Block duplicate active requests
+        existing = BookingRequest.objects.filter(
+            creator_id      = creator_id,
+            requester_phone = requester_phone,
+            status__in      = ["pending", "accepted"],
+        ).first()
+
+        if existing:
+            return Response({
+                "id":     str(existing.id),
+                "status": existing.status,
+            }, status=200)
+
+        br = BookingRequest.objects.create(
+            creator_id      = creator_id,
+            requester_id    = requester_id,
+            requester_phone = requester_phone,
+            occasion_type   = occasion_type,
+            event_date      = event_date,
+            location        = location,
+            budget          = budget,
+            note            = note,
+            status          = "pending",
+        )
+
+        # Notify creator: new booking request received
+        creator_user_id = _creator_user_id(str(creator_id))
+        if creator_user_id:
+            Notification.objects.create(
+                user_id = creator_user_id,
+                type    = "booking",
+                title   = "New Booking Request! 📅",
+                message = (
+                    f"You have a new booking request for {occasion_type or 'an event'} "
+                    f"on {event_date} in {location}."
+                ),
+                url = "/creator-dashboard",
+            )
+
+        return Response({"id": str(br.id), "status": br.status}, status=201)
+
+
 class AcceptBookingRequest(APIView):
     def post(self, request, pk):
         try:
@@ -38,16 +94,16 @@ class AcceptBookingRequest(APIView):
         br.advance_percent = int(advance)
         br.save()
 
-        # ── Notify requester: price set ho gayi ──────────────────────────────
+        # Notify requester: booking accepted with price
         if br.requester_id:
             advance_amt = int(br.agreed_price * br.advance_percent / 100)
             Notification.objects.create(
                 user_id = br.requester_id,
                 type    = "booking",
-                title   = "Booking accept ho gayi! 🎉",
+                title   = "Booking Accepted! 🎉",
                 message = (
-                    f"Creator ne ₹{int(br.agreed_price)} mein accept kiya · "
-                    f"Advance: ₹{advance_amt} · Event: {br.event_date}"
+                    f"Your booking has been accepted for ₹{int(br.agreed_price)}. "
+                    f"Advance due: ₹{advance_amt} · Event date: {br.event_date}"
                 ),
                 url = f"/creators/{br.creator_id}",
             )
@@ -70,15 +126,15 @@ class DeclineBookingRequest(APIView):
         br.status = "declined"
         br.save()
 
-        # ── Notify requester: request decline hua ────────────────────────────
+        # Notify requester: booking declined
         if br.requester_id:
             Notification.objects.create(
                 user_id = br.requester_id,
                 type    = "booking",
-                title   = "Booking request decline hua 😔",
+                title   = "Booking Request Declined",
                 message = (
-                    f"Creator {br.event_date} ke liye available nahi hai. "
-                    f"Koi aur creator try karo."
+                    f"Unfortunately, the creator is not available on {br.event_date}. "
+                    f"Please try booking another creator."
                 ),
                 url = "/creators",
             )
@@ -153,19 +209,32 @@ class VerifyPayment(APIView):
         br.status = "paid"
         br.save()
 
-        # ── Notify creator: payment aa gayi ──────────────────────────────────
+        # Notify creator: advance payment received
         creator_user_id = _creator_user_id(str(br.creator_id))
         if creator_user_id:
             advance_amt = int(br.agreed_price * br.advance_percent / 100)
             Notification.objects.create(
                 user_id = creator_user_id,
                 type    = "payment",
-                title   = "Payment mil gayi! 💰",
+                title   = "Payment Received! 💰",
                 message = (
-                    f"₹{advance_amt} advance receive hua · "
-                    f"{br.occasion_type or 'Event'} on {br.event_date}"
+                    f"₹{advance_amt} advance has been received for "
+                    f"{br.occasion_type or 'your event'} on {br.event_date}."
                 ),
                 url = "/creator-dashboard",
+            )
+
+        # Notify requester: payment confirmed
+        if br.requester_id:
+            Notification.objects.create(
+                user_id = br.requester_id,
+                type    = "payment",
+                title   = "Payment Confirmed! ✅",
+                message = (
+                    f"Your advance payment of ₹{advance_amt} was successful. "
+                    f"Your booking for {br.occasion_type or 'the event'} on {br.event_date} is confirmed."
+                ),
+                url = "/my-bookings",
             )
 
         return Response({"status": "paid"})
