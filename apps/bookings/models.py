@@ -10,6 +10,7 @@ class BookingRequest(models.Model):
     ]
     id              = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     creator_id      = models.UUIDField()
+    requester_id    = models.CharField(max_length=255, null=True, blank=True)  # Clerk user ID
     requester_phone = models.CharField(max_length=15)
     occasion_type   = models.CharField(max_length=100, null=True, blank=True)
     event_date      = models.DateField()
