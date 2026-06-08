@@ -209,10 +209,12 @@ class VerifyPayment(APIView):
         br.status = "paid"
         br.save()
 
+        # Calculate advance amount once for both notifications
+        advance_amt = int(br.agreed_price * br.advance_percent / 100)
+
         # Notify creator: advance payment received
         creator_user_id = _creator_user_id(str(br.creator_id))
         if creator_user_id:
-            advance_amt = int(br.agreed_price * br.advance_percent / 100)
             Notification.objects.create(
                 user_id = creator_user_id,
                 type    = "payment",
