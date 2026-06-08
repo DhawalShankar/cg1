@@ -6,8 +6,18 @@ from django.conf import settings
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from .models import BookingRequest, Payment
+from apps.notifications.models import Notification
 
 rz = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
+
+
+def _creator_user_id(creator_id: str) -> str | None:
+    """BookingRequest.creator_id → Clerk user ID (profile_id) of that creator."""
+    try:
+        from apps.creators.models import Creator
+        return str(Creator.objects.get(pk=creator_id).profile_id)
+    except Exception:
+        return None
 
 
 class AcceptBookingRequest(APIView):
@@ -28,6 +38,20 @@ class AcceptBookingRequest(APIView):
         br.advance_percent = int(advance)
         br.save()
 
+        # ── Notify requester: price set ho gayi ──────────────────────────────
+        if br.requester_id:
+            advance_amt = int(br.agreed_price * br.advance_percent / 100)
+            Notification.objects.create(
+                user_id = br.requester_id,
+                type    = "booking",
+                title   = "Booking accept ho gayi! 🎉",
+                message = (
+                    f"Creator ne ₹{int(br.agreed_price)} mein accept kiya · "
+                    f"Advance: ₹{advance_amt} · Event: {br.event_date}"
+                ),
+                url = f"/creators/{br.creator_id}",
+            )
+
         return Response({
             "id":              str(br.id),
             "status":          br.status,
@@ -45,6 +69,20 @@ class DeclineBookingRequest(APIView):
 
         br.status = "declined"
         br.save()
+
+        # ── Notify requester: request decline hua ────────────────────────────
+        if br.requester_id:
+            Notification.objects.create(
+                user_id = br.requester_id,
+                type    = "booking",
+                title   = "Booking request decline hua 😔",
+                message = (
+                    f"Creator {br.event_date} ke liye available nahi hai. "
+                    f"Koi aur creator try karo."
+                ),
+                url = "/creators",
+            )
+
         return Response({"id": str(br.id), "status": "declined"})
 
 
@@ -111,7 +149,23 @@ class VerifyPayment(APIView):
         payment.status              = "captured"
         payment.save()
 
-        payment.booking_request.status = "paid"
-        payment.booking_request.save()
+        br        = payment.booking_request
+        br.status = "paid"
+        br.save()
+
+        # ── Notify creator: payment aa gayi ──────────────────────────────────
+        creator_user_id = _creator_user_id(str(br.creator_id))
+        if creator_user_id:
+            advance_amt = int(br.agreed_price * br.advance_percent / 100)
+            Notification.objects.create(
+                user_id = creator_user_id,
+                type    = "payment",
+                title   = "Payment mil gayi! 💰",
+                message = (
+                    f"₹{advance_amt} advance receive hua · "
+                    f"{br.occasion_type or 'Event'} on {br.event_date}"
+                ),
+                url = "/creator-dashboard",
+            )
 
         return Response({"status": "paid"})
